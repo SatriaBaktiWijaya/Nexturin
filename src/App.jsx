@@ -25,6 +25,7 @@ function App() {
   const fileInputRef = useRef(null);
   const [imageSrc, setImageSrc] = useState(DEFAULT_SVG);
   const [activeTab, setActiveTab] = useState("shader"); // shader, palette, adjustments
+  const [copiedCode, setCopiedCode] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("png");
   const [effectType, setEffectType] = useState(0); // 0: Dither, 1: Halftone
   const [halftoneSize, setHalftoneSize] = useState(8);
