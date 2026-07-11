@@ -13,9 +13,12 @@ const hexToRgb = (hex) => {
 
 const DitherCanvas = forwardRef(({
   imageSrc,
+  effectType = 0,
   ditherType = 2,
   ditherSize = 2,
   colorSteps = 2,
+  halftoneSize = 8,
+  halftoneSharpness = 0.05,
   colorBack = "#000000",
   colorFront = "#ffffff",
   colorHighlight = "#ffffff",
@@ -183,9 +186,12 @@ const DitherCanvas = forwardRef(({
     }
   }, [
     loading,
+    effectType,
     ditherType,
     ditherSize,
     colorSteps,
+    halftoneSize,
+    halftoneSharpness,
     colorBack,
     colorFront,
     colorHighlight,
@@ -271,9 +277,18 @@ const DitherCanvas = forwardRef(({
     // Set uniform values
     gl.uniform1i(gl.getUniformLocation(program, "u_image"), 0);
     gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), canvas.width, canvas.height);
+    
+    // Mode switcher
+    gl.uniform1i(gl.getUniformLocation(program, "u_effectType"), effectType);
+    
+    // Dither parameters
     gl.uniform1f(gl.getUniformLocation(program, "u_ditherSize"), ditherSize);
     gl.uniform1f(gl.getUniformLocation(program, "u_colorSteps"), colorSteps);
     gl.uniform1i(gl.getUniformLocation(program, "u_ditherType"), ditherType);
+    
+    // Halftone parameters
+    gl.uniform1f(gl.getUniformLocation(program, "u_halftoneSize"), halftoneSize);
+    gl.uniform1f(gl.getUniformLocation(program, "u_halftoneSharpness"), halftoneSharpness);
 
     gl.uniform3fv(gl.getUniformLocation(program, "u_colorBack"), new Float32Array(hexToRgb(colorBack)));
     gl.uniform3fv(gl.getUniformLocation(program, "u_colorFront"), new Float32Array(hexToRgb(colorFront)));

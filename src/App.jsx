@@ -25,8 +25,10 @@ function App() {
   const fileInputRef = useRef(null);
   const [imageSrc, setImageSrc] = useState(DEFAULT_SVG);
   const [activeTab, setActiveTab] = useState("shader"); // shader, palette, adjustments
-  const [copiedCode, setCopiedCode] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("png");
+  const [effectType, setEffectType] = useState(0); // 0: Dither, 1: Halftone
+  const [halftoneSize, setHalftoneSize] = useState(8);
+  const [halftoneSharpness, setHalftoneSharpness] = useState(0.08);
 
   // Shader configuration states initialized to Classic GameBoy style
   const [ditherType, setDitherType] = useState(3); // 8x8
@@ -51,6 +53,7 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
 
   const applyPreset = (preset) => {
+    setEffectType(0); // Force Dither mode for presets
     setDitherType(preset.type === "random" ? 0 : preset.type === "2x2" ? 1 : preset.type === "4x4" ? 2 : 3);
     setDitherSize(preset.size);
     setColorSteps(preset.colorSteps);
@@ -113,7 +116,9 @@ function App() {
 
   const copyCodeToClipboard = () => {
     const ditherTypeName = ditherType === 0 ? "random" : ditherType === 1 ? "2x2" : ditherType === 2 ? "4x4" : "8x8";
-    const componentCode = `import { ImageDithering } from '@paper-design/shaders-react';
+    
+    const componentCode = effectType === 0 
+      ? `import { ImageDithering } from '@paper-design/shaders-react';
 
 <ImageDithering
   width={1280}
@@ -127,6 +132,21 @@ function App() {
   type="${ditherTypeName}"
   size={${ditherSize}}
   colorSteps={${colorSteps}}
+  fit="${fit}"
+/>`
+      : `import { ImageHalftone } from '@paper-design/shaders-react';
+
+<ImageHalftone
+  width={1280}
+  height={720}
+  image="${imageSrc.startsWith("data:") ? "your-image-url.jpg" : imageSrc.split("&")[0]}"
+  colorBack="${colorBack}"
+  colorFront="${colorFront}"
+  colorHighlight="${colorHighlight}"
+  originalColors={${originalColors}}
+  inverted={${inverted}}
+  dotSize={${halftoneSize}}
+  sharpness={${halftoneSharpness}}
   fit="${fit}"
 />`;
     
@@ -180,9 +200,12 @@ function App() {
           <DitherCanvas
             ref={ditherCanvasRef}
             imageSrc={imageSrc}
+            effectType={effectType}
             ditherType={ditherType}
             ditherSize={ditherSize}
             colorSteps={colorSteps}
+            halftoneSize={halftoneSize}
+            halftoneSharpness={halftoneSharpness}
             colorBack={colorBack}
             colorFront={colorFront}
             colorHighlight={colorHighlight}
@@ -198,6 +221,24 @@ function App() {
         </div>
 
         <aside className="control-sidebar">
+          <div className="effect-select-container" style={{ padding: "16px", borderBottom: "1px solid var(--border-color)" }}>
+            <label style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)", fontWeight: "600", display: "block", marginBottom: "8px" }}>Render Effect</label>
+            <div className="toggle-group" style={{ width: "100%" }}>
+              <button 
+                className={`toggle-btn ${effectType === 0 ? "active" : ""}`}
+                onClick={() => setEffectType(0)}
+              >
+                Dither
+              </button>
+              <button 
+                className={`toggle-btn ${effectType === 1 ? "active" : ""}`}
+                onClick={() => setEffectType(1)}
+              >
+                Halftone
+              </button>
+            </div>
+          </div>
+
           <div className="sidebar-tabs">
             <button 
               className={`tab-btn ${activeTab === "shader" ? "active" : ""}`} 
@@ -222,55 +263,91 @@ function App() {
           <div className="tab-content">
             {activeTab === "shader" && (
               <div className="control-group">
-                <div className="control-item">
-                  <label>Dither Pattern</label>
-                  <div className="toggle-group">
-                    {[
-                      { label: "Noise", val: 0 },
-                      { label: "2x2", val: 1 },
-                      { label: "4x4", val: 2 },
-                      { label: "8x8", val: 3 }
-                    ].map((opt) => (
-                      <button
-                        key={opt.val}
-                        className={`toggle-btn ${ditherType === opt.val ? "active" : ""}`}
-                        onClick={() => setDitherType(opt.val)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {effectType === 0 ? (
+                  <>
+                    <div className="control-item">
+                      <label>Dither Pattern</label>
+                      <div className="toggle-group">
+                        {[
+                          { label: "Noise", val: 0 },
+                          { label: "2x2", val: 1 },
+                          { label: "4x4", val: 2 },
+                          { label: "8x8", val: 3 }
+                        ].map((opt) => (
+                          <button
+                            key={opt.val}
+                            className={`toggle-btn ${ditherType === opt.val ? "active" : ""}`}
+                            onClick={() => setDitherType(opt.val)}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                <div className="control-item">
-                  <div className="control-header">
-                    <label>Pixel Grid Size</label>
-                    <span className="control-val">{ditherSize.toFixed(1)}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="10"
-                    step="0.5"
-                    value={ditherSize}
-                    onChange={(e) => setDitherSize(parseFloat(e.target.value))}
-                  />
-                </div>
+                    <div className="control-item">
+                      <div className="control-header">
+                        <label>Pixel Grid Size</label>
+                        <span className="control-val">{ditherSize.toFixed(1)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="10"
+                        step="0.5"
+                        value={ditherSize}
+                        onChange={(e) => setDitherSize(parseFloat(e.target.value))}
+                      />
+                    </div>
 
-                <div className="control-item">
-                  <div className="control-header">
-                    <label>Color Levels</label>
-                    <span className="control-val">{colorSteps}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="2"
-                    max="7"
-                    step="1"
-                    value={colorSteps}
-                    onChange={(e) => setColorSteps(parseInt(e.target.value))}
-                  />
-                </div>
+                    <div className="control-item">
+                      <div className="control-header">
+                        <label>Color Levels</label>
+                        <span className="control-val">{colorSteps}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="2"
+                        max="7"
+                        step="1"
+                        value={colorSteps}
+                        onChange={(e) => setColorSteps(parseInt(e.target.value))}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="control-item">
+                      <div className="control-header">
+                        <label>Dot Grid Size</label>
+                        <span className="control-val">{halftoneSize.toFixed(1)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="2"
+                        max="24"
+                        step="0.5"
+                        value={halftoneSize}
+                        onChange={(e) => setHalftoneSize(parseFloat(e.target.value))}
+                      />
+                    </div>
+
+                    <div className="control-item">
+                      <div className="control-header">
+                        <label>Dot Smoothness</label>
+                        <span className="control-val">{(halftoneSharpness * 100).toFixed(0)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.01"
+                        max="0.4"
+                        step="0.01"
+                        value={halftoneSharpness}
+                        onChange={(e) => setHalftoneSharpness(parseFloat(e.target.value))}
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="control-item row-flex">
                   <label>Image Fit Mode</label>
@@ -288,7 +365,7 @@ function App() {
                       onChange={(e) => setOriginalColors(e.target.checked)}
                     />
                     <span className="checkmark"></span>
-                    Use Original Colors
+                    {effectType === 0 ? "Use Original Colors" : "CMYK Screen Print Mode"}
                   </label>
                 </div>
 
