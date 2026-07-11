@@ -54,7 +54,6 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
 
   const applyPreset = (preset) => {
-    setEffectType(0); // Force Dither mode for presets
     setDitherType(preset.type === "random" ? 0 : preset.type === "2x2" ? 1 : preset.type === "4x4" ? 2 : 3);
     setDitherSize(preset.size);
     setColorSteps(preset.colorSteps);
