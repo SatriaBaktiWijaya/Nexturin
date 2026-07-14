@@ -103,17 +103,21 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
 
   const applyPreset = (preset) => {
-    setEffectType(0); // Force Dither mode for presets
-    setDitherType(preset.type === "random" ? 0 : preset.type === "2x2" ? 1 : preset.type === "4x4" ? 2 : 3);
-    setDitherSize(preset.size);
-    setColorSteps(preset.colorSteps);
+    // Always apply color palette
     setOriginalColors(preset.originalColors);
     setColorBack(preset.colorBack);
     setColorFront(preset.colorFront);
     setColorHighlight(preset.colorHighlight);
-    setBrightness(preset.brightness);
-    setContrast(preset.contrast);
-    setGamma(preset.gamma);
+
+    // Only apply dither pattern parameters and adjustment presets if currently in Dither mode
+    if (effectType === 0) {
+      setDitherType(preset.type === "random" ? 0 : preset.type === "2x2" ? 1 : preset.type === "4x4" ? 2 : 3);
+      setDitherSize(preset.size);
+      setColorSteps(preset.colorSteps);
+      setBrightness(preset.brightness);
+      setContrast(preset.contrast);
+      setGamma(preset.gamma);
+    }
   };
 
   const handleFileUpload = (e) => {
