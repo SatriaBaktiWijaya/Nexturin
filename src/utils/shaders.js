@@ -16,8 +16,10 @@ export const FRAGMENT_SHADER = `#version 300 es
   
   uniform sampler2D u_image;
   uniform vec2 u_resolution;
+  uniform float u_time;
   
-  // Effect type selection: 0: Dither, 1: Halftone
+  // Effect type selection:
+  // 0: Dither, 1: Halftone (Classic), 2: Fluted Glass, 3: Halftone Dots, 4: Halftone CMYK, 5: Water
   uniform int u_effectType;
   
   // Dither parameters
@@ -25,9 +27,57 @@ export const FRAGMENT_SHADER = `#version 300 es
   uniform float u_colorSteps;
   uniform int u_ditherType; // 0: random, 1: 2x2, 2: 4x4, 3: 8x8
   
-  // Halftone parameters
+  // Halftone (Classic) parameters
   uniform float u_halftoneSize;
   uniform float u_halftoneSharpness;
+  
+  // Fluted Glass parameters
+  uniform float u_flutedSize;
+  uniform int u_flutedShape; // 0: lines, 1: wave, 2: zigzag
+  uniform float u_flutedAngle;
+  uniform int u_flutedDistortionShape; // 0: prism, 1: lens
+  uniform float u_flutedDistortion;
+  uniform float u_flutedShadows;
+  uniform float u_flutedHighlights;
+  uniform float u_flutedStretch;
+  uniform float u_flutedBlur;
+  uniform float u_flutedEdges;
+  uniform vec3 u_colorShadow;
+  
+  // Halftone Dots parameters
+  uniform int u_dotGridType; // 0: grid, 1: hex
+  uniform int u_dotShapeType; // 0: normal, 1: gooey
+  uniform float u_dotRadius;
+  uniform float u_dotContrast;
+  uniform float u_dotSize;
+  uniform float u_dotGrain;
+
+  // Halftone CMYK parameters
+  uniform float u_cmykSize;
+  uniform float u_cmykNoise;
+  uniform float u_cmykSoftness;
+  uniform float u_cmykContrast;
+  uniform float u_cmykGainC;
+  uniform float u_cmykGainM;
+  uniform float u_cmykGainY;
+  uniform float u_cmykGainK;
+  uniform float u_cmykFloodC;
+  uniform float u_cmykFloodM;
+  uniform float u_cmykFloodY;
+  uniform float u_cmykFloodK;
+  uniform vec3 u_colorC;
+  uniform vec3 u_colorM;
+  uniform vec3 u_colorY;
+  uniform vec3 u_colorK;
+  
+  // Water parameters
+  uniform float u_waterSize;
+  uniform float u_waterSpeed;
+  uniform float u_waterWaves;
+  uniform float u_waterCaustic;
+  uniform float u_waterHighlights;
+  uniform float u_waterLayering;
+  uniform float u_waterEdges;
   
   // Color controls
   uniform vec3 u_colorBack;
@@ -80,44 +130,160 @@ export const FRAGMENT_SHADER = `#version 300 es
     return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
   }
 
-  // Rotate coordinates for Halftone Screen angles
+  // Rotate coordinates for angles
   vec2 rotate(vec2 p, float angle) {
     float s = sin(angle);
     float c = cos(angle);
     return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
   }
 
-  // Get halftone circle intensity for a channel
+  // Get halftone circle intensity for a channel (rotated square grid)
   float getHalftoneDot(vec2 fragCoord, float angle, float size, float channelVal, float sharpness) {
     vec2 rotated = rotate(fragCoord, angle);
     vec2 cell = floor(rotated / size) + 0.5;
     vec2 localUV = (rotated - (cell * size)) / size;
     float dist = length(localUV);
-    
-    // Sample channelVal at the center of the grid cell to prevent blocky artifacts
-    // In simple shader, we just use the current pixel value
     float radius = sqrt(channelVal) * 0.7071;
     return smoothstep(radius + sharpness, radius - sharpness, dist);
   }
 
+  // Get hexagonal grid local coordinates
+  vec2 getHexGrid(vec2 p, float size, out vec2 cellId) {
+    vec2 s = vec2(1.0, 1.7320508); // 1.732 is sqrt(3)
+    vec2 gridUV = p / size;
+    
+    vec4 hexCenter = floor(vec4(gridUV, gridUV - vec2(0.5, 0.5)) / s.xyxy) + 0.5;
+    vec4 hexLocal = gridUV.xyxy - hexCenter * s.xyxy;
+    
+    if (dot(hexLocal.xy, hexLocal.xy) < dot(hexLocal.zw, hexLocal.zw)) {
+      cellId = hexCenter.xy;
+      return hexLocal.xy;
+    } else {
+      cellId = hexCenter.zw + 0.5;
+      return hexLocal.zw;
+    }
+  }
+
   void main() {
-    // Sample original color
+    vec2 fragCoord = v_texCoord * u_resolution;
+    
+    if (u_effectType == 2) {
+      // -------------------- FLUTED GLASS EFFECT --------------------
+      // Rotate coordinates
+      float radAngle = u_flutedAngle * 3.14159265 / 180.0;
+      vec2 rotated = rotate(fragCoord, radAngle);
+      
+      // Calculate repeat wave
+      float stripeWidth = max(2.0, u_flutedSize * 150.0);
+      float stripeX = rotated.x / stripeWidth;
+      
+      // Select shape
+      float wave = 0.0;
+      if (u_flutedShape == 0) {
+        // lines (linear ramp)
+        wave = abs(fract(stripeX) - 0.5) * 2.0;
+      } else if (u_flutedShape == 1) {
+        // wave (sine curve)
+        wave = sin(stripeX * 6.2831853) * 0.5 + 0.5;
+      } else if (u_flutedShape == 2) {
+        // zigzag
+        float stripeY = rotated.y / (stripeWidth * 2.0);
+        float shift = abs(fract(stripeY) - 0.5) * 2.0;
+        wave = abs(fract(stripeX + shift * 0.5) - 0.5) * 2.0;
+      }
+      
+      // Select distortion profile
+      float profile = 0.0;
+      if (u_flutedDistortionShape == 0) {
+        // prism (flat slope)
+        profile = wave;
+      } else {
+        // lens (spherical curve)
+        profile = sqrt(max(0.0, 1.0 - pow((wave - 0.5) * 2.0, 2.0)));
+      }
+      
+      // Normal map calculation for refraction
+      float normalX = (profile - 0.5) * 2.0;
+      
+      // Blur and margins
+      float edgeDist = min(min(v_texCoord.x, 1.0 - v_texCoord.x), min(v_texCoord.y, 1.0 - v_texCoord.y));
+      float edgeFactor = smoothstep(0.0, max(0.01, u_flutedEdges * 0.1), edgeDist);
+      
+      // Distort texture coordinate
+      vec2 dir = vec2(cos(radAngle), sin(radAngle));
+      vec2 refractUV = v_texCoord + dir * normalX * u_flutedDistortion * 0.05 * edgeFactor;
+      refractUV = clamp(refractUV, 0.0, 1.0);
+      
+      // Sample distorted image
+      vec3 col = texture(u_image, refractUV).rgb;
+      
+      // Shadowing / Highlight
+      float shadowIntensity = max(0.0, normalX) * u_flutedShadows * 0.6;
+      float highlightIntensity = pow(1.0 - abs(normalX), 5.0) * u_flutedHighlights * 0.8;
+      
+      col = mix(col, u_colorShadow, shadowIntensity);
+      col = mix(col, u_colorHighlight, highlightIntensity);
+      
+      // Apply general adjustments
+      col = (col - 0.5) * (1.0 + u_contrast) + 0.5 + u_brightness;
+      float luma = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(luma), col, 1.0 + u_saturation);
+      col = pow(clamp(col, 0.0, 1.0), vec3(u_gamma));
+      
+      fragColor = vec4(col, 1.0);
+      return;
+    }
+    
+    if (u_effectType == 5) {
+      // -------------------- WATER CAUSTICS EFFECT --------------------
+      float timeVal = u_time * u_waterSpeed * 0.001;
+      vec2 p = v_texCoord * max(1.0, u_waterSize * 6.0);
+      
+      // Waves loop (zozuar recursive sine noise)
+      vec2 pOffset = p;
+      for (int i = 1; i < 5; i++) {
+        float fi = float(i);
+        pOffset += sin(pOffset.yx + vec2(timeVal * fi, timeVal * 1.4 * fi)) * u_waterWaves * 0.5;
+        pOffset += cos(pOffset.yx - vec2(timeVal * 0.8 * fi, timeVal * fi)) * u_waterWaves * 0.5;
+        pOffset = pOffset * 1.5;
+      }
+      
+      // Caustic logic
+      float causticLuma = length(sin(pOffset)) * u_waterCaustic * 0.25;
+      
+      // Distort texture coordinate based on wave vector
+      float edgeDist = min(min(v_texCoord.x, 1.0 - v_texCoord.x), min(v_texCoord.y, 1.0 - v_texCoord.y));
+      float edgeFactor = smoothstep(0.0, max(0.01, u_waterEdges * 0.15), edgeDist);
+      vec2 refractUV = v_texCoord + sin(pOffset) * u_waterWaves * 0.012 * edgeFactor;
+      refractUV = clamp(refractUV, 0.0, 1.0);
+      
+      // Sample distorted image
+      vec3 col = texture(u_image, refractUV).rgb;
+      
+      // Overlay caustic highlight
+      col += vec3(causticLuma) * u_colorHighlight * u_waterHighlights * 2.0;
+      
+      // Apply adjustments
+      col = (col - 0.5) * (1.0 + u_contrast) + 0.5 + u_brightness;
+      float luma = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(vec3(luma), col, 1.0 + u_saturation);
+      col = pow(clamp(col, 0.0, 1.0), vec3(u_gamma));
+      
+      fragColor = vec4(col, 1.0);
+      return;
+    }
+    
+    // For dithering and halftone, we pre-adjust image colors
     vec4 texColor = texture(u_image, v_texCoord);
     vec3 rgb = texColor.rgb;
     
-    // Apply contrast and brightness adjustments
     rgb = (rgb - 0.5) * (1.0 + u_contrast) + 0.5 + u_brightness;
     rgb = clamp(rgb, 0.0, 1.0);
     
-    // Apply saturation adjustment
-    float luma = dot(rgb, vec3(0.299, 0.587, 0.114));
-    rgb = mix(vec3(luma), rgb, 1.0 + u_saturation);
+    float initialLuma = dot(rgb, vec3(0.299, 0.587, 0.114));
+    rgb = mix(vec3(initialLuma), rgb, 1.0 + u_saturation);
     rgb = clamp(rgb, 0.0, 1.0);
-    
-    // Apply gamma correction
     rgb = pow(rgb, vec3(u_gamma));
-    
-    vec2 fragCoord = v_texCoord * u_resolution;
     
     if (u_effectType == 0) {
       // -------------------- DITHERING MODE --------------------
@@ -171,21 +337,18 @@ export const FRAGMENT_SHADER = `#version 300 es
       
       fragColor = vec4(finalColor, texColor.a);
       
-    } else {
-      // -------------------- CMYK HALFTONE MODE --------------------
-      // Convert RGB to CMYK
+    } else if (u_effectType == 1) {
+      // -------------------- HALFTONE (CLASSIC) MODE --------------------
       float k = 1.0 - max(max(rgb.r, rgb.g), rgb.b);
       float c = (1.0 - rgb.r - k) / max(1e-5, 1.0 - k);
       float m = (1.0 - rgb.g - k) / max(1e-5, 1.0 - k);
       float y = (1.0 - rgb.b - k) / max(1e-5, 1.0 - k);
       
-      // Standard screen angles for CMYK (in radians)
       float angleC = 15.0 * 3.14159265 / 180.0;
       float angleM = 75.0 * 3.14159265 / 180.0;
       float angleY = 0.0 * 3.14159265 / 180.0;
       float angleK = 45.0 * 3.14159265 / 180.0;
       
-      // Get halftone values (0 or 1, anti-aliased)
       float size = max(1.0, u_halftoneSize);
       float sharpness = max(0.01, u_halftoneSharpness);
       
@@ -194,7 +357,6 @@ export const FRAGMENT_SHADER = `#version 300 es
       float dotY = getHalftoneDot(fragCoord, angleY, size, y, sharpness);
       float dotK = getHalftoneDot(fragCoord, angleK, size, k, sharpness);
       
-      // Invert dots if requested
       if (u_inverted) {
         dotC = 1.0 - dotC;
         dotM = 1.0 - dotM;
@@ -205,17 +367,12 @@ export const FRAGMENT_SHADER = `#version 300 es
       vec3 finalColor;
       
       if (u_originalColors) {
-        // Multi-color offset print on paper look
-        // Back color acts as paper background (default is cream white)
         vec3 paper = u_colorBack;
-        
-        // CMYK subtractive paint overlay
         vec3 cyanInk = vec3(0.0, 1.0, 1.0);
         vec3 magentaInk = vec3(1.0, 0.0, 1.0);
         vec3 yellowInk = vec3(1.0, 1.0, 0.0);
         vec3 blackInk = vec3(0.0, 0.0, 0.0);
         
-        // Subtractive color mixing simulation
         vec3 color = paper;
         color = mix(color, color * cyanInk, dotC);
         color = mix(color, color * magentaInk, dotM);
@@ -223,17 +380,137 @@ export const FRAGMENT_SHADER = `#version 300 es
         color = mix(color, color * blackInk, dotK);
         finalColor = clamp(color, 0.0, 1.0);
       } else {
-        // Mono/3-Color custom halftone
-        // We evaluate total luma of combined dots
         float totalInk = max(max(dotC, dotM), max(dotY, dotK));
-        
-        // Map total ink to our 3 palette colors (light background, dark ink)
         if (totalInk < 0.5) {
           finalColor = mix(u_colorHighlight, u_colorFront, totalInk * 2.0);
         } else {
           finalColor = mix(u_colorFront, u_colorBack, (totalInk - 0.5) * 2.0);
         }
       }
+      
+      fragColor = vec4(finalColor, texColor.a);
+      
+    } else if (u_effectType == 3) {
+      // -------------------- HALFTONE DOTS MODE (SINGLE COLOR) --------------------
+      float gray = dot(rgb, vec3(0.299, 0.587, 0.114));
+      gray = mix(gray, (gray - 0.5) * (1.0 + u_dotContrast) + 0.5, 1.0);
+      gray = clamp(gray, 0.0, 1.0);
+      
+      // Choose grid type
+      vec2 localUV;
+      vec2 cellId;
+      float dSize = max(2.0, u_dotSize * 30.0);
+      
+      if (u_dotGridType == 1) {
+        // hexagonal grid
+        localUV = getHexGrid(fragCoord, dSize, cellId);
+      } else {
+        // rectangular grid
+        vec2 cell = floor(fragCoord / dSize) + 0.5;
+        localUV = (fragCoord - (cell * dSize)) / dSize;
+        cellId = cell;
+      }
+      
+      float dist = length(localUV);
+      
+      // Sample gray value at center of dot to prevent aliasing artifact blocks
+      vec2 centerTexCoord = (cellId * dSize) / u_resolution;
+      if (u_dotGridType == 1) {
+        vec2 s = vec2(1.0, 1.7320508);
+        centerTexCoord = (cellId * s * dSize) / u_resolution;
+      }
+      centerTexCoord = clamp(centerTexCoord, 0.0, 1.0);
+      float sampledGray = dot(texture(u_image, centerTexCoord).rgb, vec3(0.299, 0.587, 0.114));
+      sampledGray = clamp(sampledGray, 0.0, 1.0);
+      
+      // Calculate dot radius
+      float radius = sampledGray * u_dotRadius * 0.5;
+      float sharpness = 0.08;
+      
+      float dotFactor = 0.0;
+      if (u_dotShapeType == 1) {
+        // gooey metaball shape
+        float field = exp(-dist * dist / max(0.01, radius * radius * 0.8));
+        dotFactor = smoothstep(0.4, 0.5, field * radius);
+      } else {
+        // normal sharp circles
+        dotFactor = smoothstep(radius + sharpness, radius - sharpness, dist);
+      }
+      
+      if (u_inverted) {
+        dotFactor = 1.0 - dotFactor;
+      }
+      
+      // Grain overlay
+      float grain = pseudoRandom(fragCoord) * u_dotGrain;
+      dotFactor = clamp(dotFactor + grain - u_dotGrain * 0.5, 0.0, 1.0);
+      
+      vec3 finalColor;
+      if (u_originalColors) {
+        finalColor = mix(u_colorBack, rgb, dotFactor);
+      } else {
+        finalColor = mix(u_colorBack, u_colorFront, dotFactor);
+      }
+      
+      fragColor = vec4(finalColor, texColor.a);
+      
+    } else if (u_effectType == 4) {
+      // -------------------- HALFTONE CMYK (ADVANCED) MODE --------------------
+      // CMYK values
+      float k = 1.0 - max(max(rgb.r, rgb.g), rgb.b);
+      float c = (1.0 - rgb.r - k) / max(1e-5, 1.0 - k);
+      float m = (1.0 - rgb.g - k) / max(1e-5, 1.0 - k);
+      float y = (1.0 - rgb.b - k) / max(1e-5, 1.0 - k);
+      
+      // Apply gains and floods
+      c = clamp(c * (1.0 + u_cmykGainC) + u_cmykFloodC, 0.0, 1.0);
+      m = clamp(m * (1.0 + u_cmykGainM) + u_cmykFloodM, 0.0, 1.0);
+      y = clamp(y * (1.0 + u_cmykGainY) + u_cmykFloodY, 0.0, 1.0);
+      k = clamp(k * (1.0 + u_cmykGainK) + u_cmykFloodK, 0.0, 1.0);
+      
+      // Screen angles
+      float angleC = 15.0 * 3.14159265 / 180.0;
+      float angleM = 75.0 * 3.14159265 / 180.0;
+      float angleY = 0.0 * 3.14159265 / 180.0;
+      float angleK = 45.0 * 3.14159265 / 180.0;
+      
+      float size = max(2.0, u_cmykSize * 30.0);
+      float softness = max(0.01, u_cmykSoftness * 0.3);
+      
+      // Add grid noise jitter
+      vec2 noiseOffset = vec2(pseudoRandom(floor(fragCoord / size))) * u_cmykNoise * size * 0.3;
+      vec2 noisyCoord = fragCoord + noiseOffset;
+      
+      float dotC = getHalftoneDot(noisyCoord, angleC, size, c, softness);
+      float dotM = getHalftoneDot(noisyCoord, angleM, size, m, softness);
+      float dotY = getHalftoneDot(noisyCoord, angleY, size, y, softness);
+      float dotK = getHalftoneDot(noisyCoord, angleK, size, k, softness);
+      
+      if (u_inverted) {
+        dotC = 1.0 - dotC;
+        dotM = 1.0 - dotM;
+        dotY = 1.0 - dotY;
+        dotK = 1.0 - dotK;
+      }
+      
+      vec3 finalColor;
+      
+      // Subtractive color mixing on back paper background
+      vec3 paper = u_colorBack;
+      vec3 inkC = u_colorC;
+      vec3 inkM = u_colorM;
+      vec3 inkY = u_colorY;
+      vec3 inkK = u_colorK;
+      
+      vec3 color = paper;
+      color = mix(color, color * inkC, dotC);
+      color = mix(color, color * inkM, dotM);
+      color = mix(color, color * inkY, dotY);
+      color = mix(color, color * inkK, dotK);
+      
+      // Apply contrast to final print look
+      color = (color - 0.5) * (1.0 + u_cmykContrast) + 0.5;
+      finalColor = clamp(color, 0.0, 1.0);
       
       fragColor = vec4(finalColor, texColor.a);
     }

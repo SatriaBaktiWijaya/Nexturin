@@ -4,7 +4,7 @@ import { VERTEX_SHADER, FRAGMENT_SHADER } from "../utils/shaders";
 // Helper to convert HEX to normalized float array [r, g, b]
 const hexToRgb = (hex) => {
   const cleanHex = hex.replace(/^#/, "");
-  if (cleanHex.length !== 6) return [1, 1, 1];
+  if (cleanHex.length !== 6 && cleanHex.length !== 8) return [1, 1, 1];
   const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
   const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
   const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
@@ -14,11 +14,62 @@ const hexToRgb = (hex) => {
 const DitherCanvas = forwardRef(({
   imageSrc,
   effectType = 0,
+  
+  // Dither parameters
   ditherType = 2,
   ditherSize = 2,
   colorSteps = 2,
+  
+  // Halftone (Classic) parameters
   halftoneSize = 8,
   halftoneSharpness = 0.05,
+  
+  // Fluted Glass parameters
+  flutedSize = 0.5,
+  flutedShape = 0,
+  flutedAngle = 0,
+  flutedDistortionShape = 0,
+  flutedDistortion = 0.5,
+  flutedShadows = 0.25,
+  flutedHighlights = 0.1,
+  flutedEdges = 0.25,
+  colorShadow = "#000000",
+  
+  // Halftone Dots parameters
+  dotGridType = 0,
+  dotShapeType = 0,
+  dotRadius = 1.0,
+  dotContrast = 0.4,
+  dotSize = 0.5,
+  dotGrain = 0.2,
+
+  // Halftone CMYK parameters
+  cmykSize = 0.2,
+  cmykNoise = 0.2,
+  cmykSoftness = 0.5,
+  cmykContrast = 0,
+  cmykGainC = 0,
+  cmykGainM = 0,
+  cmykGainY = 0,
+  cmykGainK = 0,
+  cmykFloodC = 0,
+  cmykFloodM = 0,
+  cmykFloodY = 0,
+  cmykFloodK = 0,
+  colorC = "#00b3ff",
+  colorM = "#fc4f9d",
+  colorY = "#ffd900",
+  colorK = "#231f20",
+  
+  // Water parameters
+  waterSize = 1.0,
+  waterSpeed = 1.0,
+  waterWaves = 0.3,
+  waterCaustic = 0.1,
+  waterHighlights = 0.07,
+  waterEdges = 0.8,
+
+  // General parameters
   colorBack = "#000000",
   colorFront = "#ffffff",
   colorHighlight = "#ffffff",
@@ -37,8 +88,11 @@ const DitherCanvas = forwardRef(({
   const positionBufferRef = useRef(null);
   const imageRef = useRef(null);
   const [loading, setLoading] = useState(true);
+  
+  const animationFrameIdRef = useRef(null);
+  const startTimeRef = useRef(Date.now());
 
-  // Expose the download function to the parent component supporting multiple formats
+  // Expose download functionality
   useImperativeHandle(ref, () => ({
     download: (format = "png", filename = "dithered-image") => {
       if (!canvasRef.current) return;
@@ -77,7 +131,6 @@ const DitherCanvas = forwardRef(({
     }
   }));
 
-  // Helper to compile shader
   const compileShader = (gl, source, type) => {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
@@ -90,7 +143,7 @@ const DitherCanvas = forwardRef(({
     return shader;
   };
 
-  // Set up WebGL context once
+  // Set up WebGL 2 Context
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -102,7 +155,6 @@ const DitherCanvas = forwardRef(({
     }
     glRef.current = gl;
 
-    // Compile shaders & Link Program
     const vs = compileShader(gl, VERTEX_SHADER, gl.VERTEX_SHADER);
     const fs = compileShader(gl, FRAGMENT_SHADER, gl.FRAGMENT_SHADER);
     if (!vs || !fs) return;
@@ -118,7 +170,6 @@ const DitherCanvas = forwardRef(({
     }
     programRef.current = program;
 
-    // Create & setup position buffer
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.bufferData(
@@ -135,7 +186,6 @@ const DitherCanvas = forwardRef(({
     );
     positionBufferRef.current = positionBuffer;
 
-    // Create texture
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -145,7 +195,6 @@ const DitherCanvas = forwardRef(({
     textureRef.current = texture;
 
     return () => {
-      // Cleanup
       if (glRef.current) {
         glRef.current.deleteTexture(texture);
         glRef.current.deleteBuffer(positionBuffer);
@@ -161,12 +210,9 @@ const DitherCanvas = forwardRef(({
     if (!imageSrc) return;
     setLoading(true);
     const img = new Image();
-    
-    // SVG data URLs do not need crossOrigin and setting it can sometimes fail in some browsers
     if (!imageSrc.startsWith("data:image/svg+xml")) {
       img.crossOrigin = "anonymous";
     }
-    
     img.src = imageSrc;
     img.onload = () => {
       imageRef.current = img;
@@ -179,9 +225,31 @@ const DitherCanvas = forwardRef(({
     };
   }, [imageSrc]);
 
-  // Handle parameters update (re-render)
+  // Request animation frame for animated shaders (like Water)
   useEffect(() => {
-    if (!loading && imageRef.current) {
+    const tick = () => {
+      if (glRef.current && programRef.current && imageRef.current && !loading) {
+        render();
+      }
+      if (effectType === 5) {
+        animationFrameIdRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    if (effectType === 5) {
+      animationFrameIdRef.current = requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+      }
+    };
+  }, [effectType, loading]);
+
+  // Re-render when parameters change (if not in active water loop)
+  useEffect(() => {
+    if (!loading && imageRef.current && effectType !== 5) {
       render();
     }
   }, [
@@ -192,6 +260,43 @@ const DitherCanvas = forwardRef(({
     colorSteps,
     halftoneSize,
     halftoneSharpness,
+    flutedSize,
+    flutedShape,
+    flutedAngle,
+    flutedDistortionShape,
+    flutedDistortion,
+    flutedShadows,
+    flutedHighlights,
+    flutedEdges,
+    colorShadow,
+    dotGridType,
+    dotShapeType,
+    dotRadius,
+    dotContrast,
+    dotSize,
+    dotGrain,
+    cmykSize,
+    cmykNoise,
+    cmykSoftness,
+    cmykContrast,
+    cmykGainC,
+    cmykGainM,
+    cmykGainY,
+    cmykGainK,
+    cmykFloodC,
+    cmykFloodM,
+    cmykFloodY,
+    cmykFloodK,
+    colorC,
+    colorM,
+    colorY,
+    colorK,
+    waterSize,
+    waterSpeed,
+    waterWaves,
+    waterCaustic,
+    waterHighlights,
+    waterEdges,
     colorBack,
     colorFront,
     colorHighlight,
@@ -212,7 +317,6 @@ const DitherCanvas = forwardRef(({
 
     if (!gl || !program || !img || !canvas) return;
 
-    // Set canvas dimensions based on image aspect ratio and fit behavior
     const container = canvas.parentElement;
     const containerWidth = container ? container.clientWidth : 800;
     const containerHeight = container ? container.clientHeight : 600;
@@ -220,7 +324,6 @@ const DitherCanvas = forwardRef(({
     let displayWidth = img.width || 800;
     let displayHeight = img.height || 600;
 
-    // Handle "cover" / "contain" mapping logic inside canvas layout
     const imageAspect = displayWidth / displayHeight;
     const containerAspect = containerWidth / containerHeight;
 
@@ -232,7 +335,7 @@ const DitherCanvas = forwardRef(({
         displayWidth = containerWidth;
         displayHeight = containerWidth / imageAspect;
       }
-    } else { // contain
+    } else {
       if (imageAspect > containerAspect) {
         displayWidth = containerWidth;
         displayHeight = containerWidth / imageAspect;
@@ -242,28 +345,23 @@ const DitherCanvas = forwardRef(({
       }
     }
 
-    // Set canvas resolution to match display size
     canvas.width = displayWidth;
     canvas.height = displayHeight;
     gl.viewport(0, 0, canvas.width, canvas.height);
 
     gl.useProgram(program);
 
-    // Bind and set vertex buffer and attributes on every draw
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBufferRef.current);
     const positionAttributeLocation = gl.getAttribLocation(program, "position");
     gl.enableVertexAttribArray(positionAttributeLocation);
     gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
 
-    // Upload texture
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
     
-    // Upload image data to GPU
     try {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
     } catch (e) {
-      console.warn("Texture upload warning, retrying with drawImage fallback:", e);
       const tempCanvas = document.createElement("canvas");
       tempCanvas.width = img.width || 800;
       tempCanvas.height = img.height || 600;
@@ -278,7 +376,11 @@ const DitherCanvas = forwardRef(({
     gl.uniform1i(gl.getUniformLocation(program, "u_image"), 0);
     gl.uniform2f(gl.getUniformLocation(program, "u_resolution"), canvas.width, canvas.height);
     
-    // Mode switcher
+    // Time uniform
+    const elapsed = Date.now() - startTimeRef.current;
+    gl.uniform1f(gl.getUniformLocation(program, "u_time"), elapsed);
+    
+    // Effect selection
     gl.uniform1i(gl.getUniformLocation(program, "u_effectType"), effectType);
     
     // Dither parameters
@@ -286,10 +388,56 @@ const DitherCanvas = forwardRef(({
     gl.uniform1f(gl.getUniformLocation(program, "u_colorSteps"), colorSteps);
     gl.uniform1i(gl.getUniformLocation(program, "u_ditherType"), ditherType);
     
-    // Halftone parameters
+    // Halftone (Classic) parameters
     gl.uniform1f(gl.getUniformLocation(program, "u_halftoneSize"), halftoneSize);
     gl.uniform1f(gl.getUniformLocation(program, "u_halftoneSharpness"), halftoneSharpness);
+    
+    // Fluted Glass parameters
+    gl.uniform1f(gl.getUniformLocation(program, "u_flutedSize"), flutedSize);
+    gl.uniform1i(gl.getUniformLocation(program, "u_flutedShape"), flutedShape);
+    gl.uniform1f(gl.getUniformLocation(program, "u_flutedAngle"), flutedAngle);
+    gl.uniform1i(gl.getUniformLocation(program, "u_flutedDistortionShape"), flutedDistortionShape);
+    gl.uniform1f(gl.getUniformLocation(program, "u_flutedDistortion"), flutedDistortion);
+    gl.uniform1f(gl.getUniformLocation(program, "u_flutedShadows"), flutedShadows);
+    gl.uniform1f(gl.getUniformLocation(program, "u_flutedHighlights"), flutedHighlights);
+    gl.uniform1f(gl.getUniformLocation(program, "u_flutedEdges"), flutedEdges);
+    gl.uniform3fv(gl.getUniformLocation(program, "u_colorShadow"), new Float32Array(hexToRgb(colorShadow)));
+    
+    // Halftone Dots parameters
+    gl.uniform1i(gl.getUniformLocation(program, "u_dotGridType"), dotGridType);
+    gl.uniform1i(gl.getUniformLocation(program, "u_dotShapeType"), dotShapeType);
+    gl.uniform1f(gl.getUniformLocation(program, "u_dotRadius"), dotRadius);
+    gl.uniform1f(gl.getUniformLocation(program, "u_dotContrast"), dotContrast);
+    gl.uniform1f(gl.getUniformLocation(program, "u_dotSize"), dotSize);
+    gl.uniform1f(gl.getUniformLocation(program, "u_dotGrain"), dotGrain);
 
+    // Halftone CMYK parameters
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykSize"), cmykSize);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykNoise"), cmykNoise);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykSoftness"), cmykSoftness);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykContrast"), cmykContrast);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykGainC"), cmykGainC);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykGainM"), cmykGainM);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykGainY"), cmykGainY);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykGainK"), cmykGainK);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykFloodC"), cmykFloodC);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykFloodM"), cmykFloodM);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykFloodY"), cmykFloodY);
+    gl.uniform1f(gl.getUniformLocation(program, "u_cmykFloodK"), cmykFloodK);
+    gl.uniform3fv(gl.getUniformLocation(program, "u_colorC"), new Float32Array(hexToRgb(colorC)));
+    gl.uniform3fv(gl.getUniformLocation(program, "u_colorM"), new Float32Array(hexToRgb(colorM)));
+    gl.uniform3fv(gl.getUniformLocation(program, "u_colorY"), new Float32Array(hexToRgb(colorY)));
+    gl.uniform3fv(gl.getUniformLocation(program, "u_colorK"), new Float32Array(hexToRgb(colorK)));
+    
+    // Water parameters
+    gl.uniform1f(gl.getUniformLocation(program, "u_waterSize"), waterSize);
+    gl.uniform1f(gl.getUniformLocation(program, "u_waterSpeed"), waterSpeed);
+    gl.uniform1f(gl.getUniformLocation(program, "u_waterWaves"), waterWaves);
+    gl.uniform1f(gl.getUniformLocation(program, "u_waterCaustic"), waterCaustic);
+    gl.uniform1f(gl.getUniformLocation(program, "u_waterHighlights"), waterHighlights);
+    gl.uniform1f(gl.getUniformLocation(program, "u_waterEdges"), waterEdges);
+
+    // Color configurations
     gl.uniform3fv(gl.getUniformLocation(program, "u_colorBack"), new Float32Array(hexToRgb(colorBack)));
     gl.uniform3fv(gl.getUniformLocation(program, "u_colorFront"), new Float32Array(hexToRgb(colorFront)));
     gl.uniform3fv(gl.getUniformLocation(program, "u_colorHighlight"), new Float32Array(hexToRgb(colorHighlight)));
@@ -302,7 +450,6 @@ const DitherCanvas = forwardRef(({
     gl.uniform1f(gl.getUniformLocation(program, "u_gamma"), gamma);
     gl.uniform1f(gl.getUniformLocation(program, "u_saturation"), saturation);
 
-    // Draw full-screen quad
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   };
 

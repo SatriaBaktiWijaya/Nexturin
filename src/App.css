@@ -625,3 +625,55 @@ input[type="range"]::-webkit-slider-thumb:hover {
     height: 50vh;
   }
 }
+
+/* Effect Select Grid Styles */
+.effect-select-container {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: rgba(10, 10, 15, 0.2);
+}
+
+.sidebar-section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.effects-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.effect-card-btn {
+  background-color: var(--color-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  padding: 10px 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+  text-align: center;
+  outline: none;
+}
+
+.effect-card-btn:hover {
+  background-color: var(--color-secondary-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.effect-card-btn.active {
+  background-color: var(--bg-accent);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 10px var(--border-glow);
+}
+
